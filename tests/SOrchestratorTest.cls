@@ -1,0 +1,541 @@
+@isTest
+public with sharing class SOrchestratorTest {
+  @isTest
+  static void testAdd_WhenAdd_ReturnNewSOrchestrator() {
+    // Act
+    SOrchestrator orchestrator = SOrchestrator.start();
+
+    // Arrange
+    SOrchestrator newSOrchestrator = orchestrator.add(SBluePrint.of(Account.class));
+
+    // Assert
+    Assert.areEqual(0, orchestrator.sBluePrints.size());
+    Assert.areEqual(1, newSOrchestrator.sBluePrints.size());
+  }
+
+  @isTest
+  static void testCreate_WhenAddSingleSBluePrint_ThenInsertOneRecord() {
+    // Arrange
+    SOrchestrator orchestrator = SOrchestrator.start(new MockDmlOperator())
+      .add(SBluePrint.of(Account.class).set('Name', 'Test Account'));
+
+    // Act
+    orchestrator.create();
+
+    // Assert
+    Account acc = (Account) orchestrator.getByAlias('__Account_0_1__');
+    Assert.areEqual('Test Account', acc.Name);
+  }
+
+  @isTest
+  static void testCreate_WHenAddSingleSBluePrintWithAlias_ThenCanAccessByAlias() {
+    // Arrange
+    SOrchestrator orchestrator = SOrchestrator.start(new MockDmlOperator())
+      .add(SBluePrint.of(Account.class).set('Name', 'Test Account').alias('acc'));
+
+    // Act
+    orchestrator.create();
+
+    // Assert
+    Account acc = (Account) orchestrator.getByAlias('acc');
+    Assert.areEqual('Test Account', acc.Name);
+  }
+
+  @isTest
+  static void testCreate_WhenAddParentAndChildren_ThenInsertInOrder() {
+    // Arrange
+    SOrchestrator orchestrator = SOrchestrator.start(new MockDmlOperator())
+      .add(
+        SBluePrint.of(Account.class)
+          .set('Name', 'Test Account')
+          .withChildren(SBluePrint.of(Contact.class).set('LastName', 'Test Contact'))
+      );
+
+    // Act
+    orchestrator.create();
+
+    // Assert
+    Account acc = (Account) orchestrator.getByAlias('__Account_0_1__');
+    Assert.areEqual('Test Account', acc.Name);
+    Contact con = (Contact) orchestrator.getByAlias('__Account_0_1_____Contact_1_1__');
+    Assert.areEqual('Test Contact', con.LastName);
+    Assert.areEqual(acc.Id, con.AccountId);
+  }
+
+  @isTest
+  static void testCreate_WhenAddParentAndChildrenWithAlias_ThenCanAccessByAlias() {
+    // Arrange
+    SOrchestrator orchestrator = SOrchestrator.start(new MockDmlOperator())
+      .add(
+        SBluePrint.of(Account.class)
+          .set('Name', 'Test Account')
+          .alias('acc')
+          .withChildren(SBluePrint.of(Contact.class).set('LastName', 'Test Contact').alias('con'))
+      );
+
+    // Act
+    orchestrator.create();
+
+    // Assert
+    Account acc = (Account) orchestrator.getByAlias('acc');
+    Assert.areEqual('Test Account', acc.Name);
+    Contact con = (Contact) orchestrator.getByAlias('con');
+    Assert.areEqual('Test Contact', con.LastName);
+    Assert.areEqual(acc.Id, con.AccountId);
+  }
+
+  @isTest
+  static void testCreate_WhenAddParentAndChildrenWithAliasAndUse_ThenInsertInOrder() {
+    // Arrange
+    SOrchestrator orchestrator = SOrchestrator.start(new MockDmlOperator())
+      .add(
+        SBluePrint.of(Account.class)
+          .set('Name', 'Test Account')
+          .alias('acc')
+          .withChildren(SBluePrint.of(Contact.class).use('acc', 'Name', 'LastName').alias('con'))
+      );
+
+    // Act
+    orchestrator.create();
+
+    // Assert
+    Account acc = (Account) orchestrator.getByAlias('acc');
+    Assert.areEqual('Test Account', acc.Name);
+    Contact con = (Contact) orchestrator.getByAlias('con');
+    Assert.areEqual('Test Account', con.LastName);
+    Assert.areEqual(acc.Id, con.AccountId);
+  }
+
+  @isTest
+  static void testCreate_WhenAddMultipleRoots_ThenInsertAllInOrder() {
+    // Arrange
+    SOrchestrator orchestrator = SOrchestrator.start(new MockDmlOperator())
+      .add(
+        SBluePrint.of(Account.class)
+          .set('Name', 'Test Account 1')
+          .alias('acc1')
+          .withChildren(SBluePrint.of(Contact.class).set('LastName', 'Test Contact 1').alias('con1'))
+      )
+      .add(
+        SBluePrint.of(Account.class)
+          .set('Name', 'Test Account 2')
+          .alias('acc2')
+          .withChildren(SBluePrint.of(Contact.class).set('LastName', 'Test Contact 2').alias('con2'))
+      );
+
+    // Act
+    orchestrator.create();
+
+    // Assert
+    Account acc1 = (Account) orchestrator.getByAlias('acc1');
+    Assert.areEqual('Test Account 1', acc1.Name);
+    Contact con1 = (Contact) orchestrator.getByAlias('con1');
+    Assert.areEqual('Test Contact 1', con1.LastName);
+    Assert.areEqual(acc1.Id, con1.AccountId);
+
+    Account acc2 = (Account) orchestrator.getByAlias('acc2');
+    Assert.areEqual('Test Account 2', acc2.Name);
+    Contact con2 = (Contact) orchestrator.getByAlias('con2');
+    Assert.areEqual('Test Contact 2', con2.LastName);
+    Assert.areEqual(acc2.Id, con2.AccountId);
+  }
+
+  @isTest
+  static void testCreate_WhenAddMulitipleParentWithChildren_ThenCreateChildrenToEachParent() {
+    SOrchestrator orchestrator = SOrchestrator.start(new MockDmlOperator())
+      .add(
+        SBluePrint.of(Account.class)
+          .set('Name', 'Test Account {#}', 1, 1)
+          .alias('acc_{#}')
+          .times(2)
+          .withChildren(
+            SBluePrint.of(Contact.class).set('LastName', 'Test Contact {#}', 1, 1).alias('{P0}_con_{#}').times(2)
+          )
+      );
+
+    // Act
+    orchestrator.create();
+
+    // Assert
+    for (Integer i = 1; i <= 2; i++) {
+      Account acc = (Account) orchestrator.getByAlias('acc_' + i);
+      Assert.areEqual('Test Account ' + i, acc.Name);
+      for (Integer j = 1; j <= 2; j++) {
+        Contact con = (Contact) orchestrator.getByAlias('acc_' + i + '_con_' + j);
+        Assert.areEqual('Test Contact ' + j, con.LastName);
+        Assert.areEqual(acc.Id, con.AccountId);
+      }
+    }
+  }
+
+  @isTest
+  static void testCreate_WhenAddMultipleParentWithChildrenWithoutAlias_ThenCreateChildrenToEachParent() {
+    SOrchestrator orchestrator = SOrchestrator.start(new MockDmlOperator())
+      .add(
+        SBluePrint.of(Account.class)
+          .set('Name', 'Test Account {#}', 1)
+          .times(2)
+          .withChildren(SBluePrint.of(Contact.class).set('LastName', 'Test Contact {#}', 1).times(2))
+      );
+
+    // Act
+    orchestrator.create();
+
+    // Assert
+    for (Integer i = 1; i <= 2; i++) {
+      String accAlias = String.format('__Account_0_{0}__', new List<String>{ String.valueOf(i) });
+      Account acc = (Account) orchestrator.getByAlias(accAlias);
+      Assert.areEqual('Test Account ' + i, acc.Name);
+      for (Integer j = 1; j <= 2; j++) {
+        String conAlias =
+          accAlias +
+          '_' +
+          String.format('__Contact_1_{0}__', new List<String>{ String.valueOf(j) });
+        System.debug('conAlias: ' + conAlias);
+        Contact con = (Contact) orchestrator.getByAlias(conAlias);
+        Assert.areEqual('Test Contact ' + j, con.LastName);
+        Assert.areEqual(acc.Id, con.AccountId);
+      }
+    }
+  }
+
+  @isTest
+  static void testCreate_WhenAddNestedMultipleParentsWithChildren_ThenCreateChildrenToEachParent() {
+    //Arrange
+    Date today = Date.today();
+    SOrchestrator orchestrator = SOrchestrator.start(new MockDmlOperator())
+      .add(
+        SBluePrint.of(Account.class)
+          .set('Name', 'Test Account {#}', 1, 1)
+          .times(2)
+          .withChildren(
+            SBluePrint.of(Opportunity.class)
+              .parentIdField('AccountId')
+              .set('Name', 'Test Opportunity {#}', 1, 1)
+              .set('StageName', 'Prospecting')
+              .set('CloseDate', today)
+              .times(2)
+              .withChildren(
+                SBluePrint.of(Quote.class)
+                  .parentIdField('OpportunityId')
+                  .set('Name', 'Test Quote {#}', 1, 1)
+                  .times(2)
+              )
+          )
+      );
+
+    // Act
+    orchestrator.create();
+
+    // Assert
+    for (Integer i = 1; i <= 2; i++) {
+      String accAlias = String.format('__Account_0_{0}__', new List<String>{ String.valueOf(i) });
+      Account acc = (Account) orchestrator.getByAlias(accAlias);
+      Assert.areEqual('Test Account ' + i, acc.Name);
+      for (Integer j = 1; j <= 2; j++) {
+        String oppAlias =
+          accAlias +
+          '_' +
+          String.format('__Opportunity_1_{0}__', new List<String>{ String.valueOf(j) });
+        Opportunity opp = (Opportunity) orchestrator.getByAlias(oppAlias);
+        Assert.areEqual(acc.Id, opp.AccountId);
+        Assert.areEqual('Test Opportunity ' + j, opp.Name);
+        Assert.areEqual('Prospecting', opp.StageName);
+        Assert.areEqual(today, opp.CloseDate);
+        for (Integer k = 1; k <= 2; k++) {
+          String quoteAlias =
+            oppAlias +
+            '_' +
+            String.format('__Quote_2_{0}__', new List<String>{ String.valueOf(k) });
+          Quote quote = (Quote) orchestrator.getByAlias(quoteAlias);
+          Assert.areEqual(opp.Id, quote.OpportunityId);
+          Assert.areEqual('Test Quote ' + k, quote.Name);
+        }
+      }
+    }
+  }
+
+  @isTest
+  static void testCreate_WhenAddNestedMultipleParentsWithChildren_ThenCreateChildrenToEachParent_2() {
+    //Arrange
+    Date today = Date.today();
+    SOrchestrator orchestrator = SOrchestrator.start(new MockDmlOperator())
+      .add(
+        SBluePrint.of(Account.class)
+          .set('Name', 'Test Account {#}', 1, 1)
+          .times(2)
+          .withChildren(
+            SBluePrint.of(Opportunity.class)
+              .parentIdField('AccountId')
+              .set('Name', 'Test Opportunity {#}', 1, 1)
+              .set('StageName', 'Prospecting')
+              .set('CloseDate', today)
+              .alias('{P0}_opp_{#}')
+              .times(2)
+              .withChildren(
+                SBluePrint.of(Quote.class)
+                  .parentIdField('OpportunityId')
+                  .set('Name', 'Test Quote {#}', 1, 1)
+                  .times(2)
+              )
+          )
+      );
+
+    // Act
+    orchestrator.create();
+
+    // Assert
+    for (Integer i = 1; i <= 2; i++) {
+      String accAlias = String.format('__Account_0_{0}__', new List<String>{ String.valueOf(i) });
+      Account acc = (Account) orchestrator.getByAlias(accAlias);
+      Assert.areEqual('Test Account ' + i, acc.Name);
+      for (Integer j = 1; j <= 2; j++) {
+        String oppAlias = accAlias + '_opp_' + j;
+        Opportunity opp = (Opportunity) orchestrator.getByAlias(oppAlias);
+        Assert.areEqual(acc.Id, opp.AccountId);
+        Assert.areEqual('Test Opportunity ' + j, opp.Name);
+        Assert.areEqual('Prospecting', opp.StageName);
+        Assert.areEqual(today, opp.CloseDate);
+        for (Integer k = 1; k <= 2; k++) {
+          String quoteAlias =
+            oppAlias +
+            '_' +
+            String.format('__Quote_1_{0}__', new List<String>{ String.valueOf(k) });
+          System.debug('quoteAlias: ' + quoteAlias);
+          Quote quote = (Quote) orchestrator.getByAlias(quoteAlias);
+          Assert.areEqual(opp.Id, quote.OpportunityId);
+          Assert.areEqual('Test Quote ' + k, quote.Name);
+        }
+      }
+    }
+  }
+
+  @isTest
+  static void testCreate_WhenAddNestedMultipleParentsWithChildren_ThenCreateChildrenToEachParent_3() {
+    //Arrange
+    Date today = Date.today();
+    SOrchestrator orchestrator = SOrchestrator.start(new MockDmlOperator())
+      .add(
+        SBluePrint.of(Account.class)
+          .set('Name', 'Test Account {#}', 1, 1)
+          .times(2)
+          .withChildren(
+            SBluePrint.of(Opportunity.class)
+              .parentIdField('AccountId')
+              .set('Name', 'Test Opportunity {#}', 1, 1)
+              .set('StageName', 'Prospecting')
+              .set('CloseDate', today)
+              .times(2)
+              .withChildren(
+                SBluePrint.of(Quote.class)
+                  .parentIdField('OpportunityId')
+                  .set('Name', 'Test Quote {#}', 1, 1)
+                  .times(2)
+                  .withChildren(
+                    SBluePrint.of(QuoteLineItem.class)
+                      .parentIdField('QuoteId')
+                      .use('prod_{#}', 'Id', 'PricebookEntryId')
+                      .set('Quantity', 1)
+                      .set('UnitPrice', 100)
+                      .times(2)
+                  )
+              )
+          )
+      )
+      .add(SBluePrint.of(Product2.class).set('Name', 'Test Product {#}', 1, 1).times(2).alias('prod_{#}'));
+
+    // Act
+    orchestrator.create();
+
+    // Assert
+    for (Integer i = 1; i <= 2; i++) {
+      String accAlias = String.format('__Account_0_{0}__', new List<String>{ String.valueOf(i) });
+      Account acc = (Account) orchestrator.getByAlias(accAlias);
+      Assert.areEqual('Test Account ' + i, acc.Name);
+      for (Integer j = 1; j <= 2; j++) {
+        String oppAlias =
+          accAlias +
+          '_' +
+          String.format('__Opportunity_1_{0}__', new List<String>{ String.valueOf(j) });
+        Opportunity opp = (Opportunity) orchestrator.getByAlias(oppAlias);
+        Assert.areEqual(acc.Id, opp.AccountId);
+        Assert.areEqual('Test Opportunity ' + j, opp.Name);
+        Assert.areEqual('Prospecting', opp.StageName);
+        Assert.areEqual(today, opp.CloseDate);
+        for (Integer k = 1; k <= 2; k++) {
+          String quoteAlias =
+            oppAlias +
+            '_' +
+            String.format('__Quote_2_{0}__', new List<String>{ String.valueOf(k) });
+          Quote quote = (Quote) orchestrator.getByAlias(quoteAlias);
+          Assert.areEqual(opp.Id, quote.OpportunityId);
+          Assert.areEqual('Test Quote ' + k, quote.Name);
+        }
+      }
+    }
+  }
+
+  @isTest
+  static void testCreate_WhenAddChildrenBeforeParent_ThenInsertInOrder() {
+    // Arrange
+    SOrchestrator orchestrator = SOrchestrator.start(new MockDmlOperator())
+      .add(SBluePrint.of(Contact.class).use('acc', 'Id', 'AccountId').set('LastName', 'Test Contact').alias('con'))
+      .add(SBluePrint.of(Account.class).set('Name', 'Test Account').alias('acc'));
+
+    // Act
+    orchestrator.create();
+
+    // Assert
+    Account acc = (Account) orchestrator.getByAlias('acc');
+    Assert.areEqual('Test Account', acc.Name);
+    Contact con = (Contact) orchestrator.getByAlias('con');
+    Assert.areEqual('Test Contact', con.LastName);
+    Assert.areEqual(acc.Id, con.AccountId);
+  }
+
+  @isTest
+  static void testCreate_WhenAddMultipleChildrenWithTimes_ThenInsertAllInOrder() {
+    // Arrange
+    SOrchestrator orchestrator = SOrchestrator.start(new MockDmlOperator())
+      .add(
+        SBluePrint.of(Account.class)
+          .set('Name', 'Test Account')
+          .alias('acc')
+          .withChildren(
+            SBluePrint.of(Contact.class).set('LastName', 'Test Contact {#}', 1, 1).alias('con_{#}').times(3)
+          )
+      );
+
+    // Act
+    orchestrator.create();
+
+    // Assert
+    Account acc = (Account) orchestrator.getByAlias('acc');
+    Assert.areEqual('Test Account', acc.Name);
+    for (Integer i = 1; i <= 3; i++) {
+      Contact con = (Contact) orchestrator.getByAlias('con_' + i);
+      Assert.areEqual('Test Contact ' + i, con.LastName);
+      Assert.areEqual(acc.Id, con.AccountId);
+    }
+  }
+
+  @isTest
+  static void testCreate_WhenAddMultiParentAndMultiChildrenWithTimes_ThenInsertAllInOrder_1() {
+    // Arrange
+    SOrchestrator orchestrator = SOrchestrator.start(new MockDmlOperator())
+      .add(SBluePrint.of(Account.class).set('Name', 'Test Account {#}', 1, 1).alias('acc_{#}').times(2))
+      .add(
+        SBluePrint.of(Contact.class)
+          .set('LastName', 'Test Contact {#}', 1, 1)
+          .use('acc_{#}', 'Id', 'AccountId')
+          .alias('con_{#}')
+          .times(2)
+      );
+
+    // Act
+    orchestrator.create();
+
+    // Assert
+    for (Integer i = 1; i <= 2; i++) {
+      Account acc = (Account) orchestrator.getByAlias('acc_' + i);
+      Assert.areEqual('Test Account ' + i, acc.Name);
+      Contact con = (Contact) orchestrator.getByAlias('con_' + i);
+      Assert.areEqual('Test Contact ' + i, con.LastName);
+      Assert.areEqual(acc.Id, con.AccountId);
+    }
+  }
+
+  @isTest
+  static void testCreate_WhenAddMultiParentAndMultiChildrenWithTimes_ThenInsertAllInOrder_2() {
+    // Arrange
+    SOrchestrator orchestrator = SOrchestrator.start(new MockDmlOperator())
+      .add(SBluePrint.of(Account.class).set('Name', 'Test Account {#}', 1, 1).alias('acc_{#}').times(2))
+      .add(
+        SBluePrint.of(Contact.class)
+          .set('LastName', 'Test Contact {#}', 1, 1)
+          .use('acc_1', 'Id', 'AccountId')
+          .alias('con_{#}')
+          .times(2)
+      )
+      .add(
+        SBluePrint.of(Contact.class)
+          .set('LastName', 'Test Contact {#}', 3, 1)
+          .use('acc_2', 'Id', 'AccountId')
+          .alias('con_{#}', 3, 1)
+          .times(2)
+      );
+
+    // Act
+    orchestrator.create();
+
+    // Assert
+    for (Integer i = 1; i <= 2; i++) {
+      Account acc = (Account) orchestrator.getByAlias('acc_' + i);
+      Assert.areEqual('Test Account ' + i, acc.Name);
+    }
+    for (Integer i = 1; i <= 4; i++) {
+      Contact con = (Contact) orchestrator.getByAlias('con_' + i);
+      Assert.areEqual('Test Contact ' + i, con.LastName);
+      Integer accIndex = (i <= 2) ? 1 : 2;
+      Account acc = (Account) orchestrator.getByAlias('acc_' + accIndex);
+      Assert.areEqual(acc.Id, con.AccountId);
+    }
+  }
+
+  @isTest
+  static void testCreate_WhenAddUseWithOffset_ThenInsertInOrder_1() {
+    // Arrange
+    SOrchestrator orchestrator = SOrchestrator.start(new MockDmlOperator())
+      .add(SBluePrint.of(Account.class).set('Name', 'Test Account {#}', 1).alias('acc_{#}').times(2))
+      .add(
+        SBluePrint.of(Contact.class)
+          .set('LastName', 'Test Contact {#}', 1)
+          .use('acc_{#}', 'Id', 'AccountId', 1)
+          .alias('con_{#}')
+          .times(2)
+      );
+
+    // Act
+    orchestrator.create();
+
+    // Assert
+    for (Integer i = 1; i <= 2; i++) {
+      Account acc = (Account) orchestrator.getByAlias('acc_' + i);
+      Assert.areEqual('Test Account ' + i, acc.Name);
+
+      Contact con = (Contact) orchestrator.getByAlias('con_' + i);
+      Assert.areEqual('Test Contact ' + i, con.LastName);
+      Assert.areEqual(acc.Id, con.AccountId);
+    }
+  }
+
+  @isTest
+  static void testCreate_WhenAddUseWithOffset_ThenInsertInORder_2() {
+    // Arrange
+    SOrchestrator orchestrator = SOrchestrator.start(new MockDmlOperator())
+      .add(SBluePrint.of(Account.class).set('Name', 'Test Account {#}', 1).alias('acc_{#}').times(10))
+      .add(
+        SBluePrint.of(Contact.class)
+          .set('LastName', 'Test Contact {#}', 6)
+          .use('acc_{#}', 'Id', 'AccountId', 6)
+          .alias('con_{#}', 6)
+          .times(5)
+      );
+
+    // Act
+    orchestrator.create();
+
+    // Assert
+    for (Integer i = 1; i <= 10; i++) {
+      Account acc = (Account) orchestrator.getByAlias('acc_' + i);
+      Assert.areEqual('Test Account ' + i, acc.Name);
+
+      Contact con = (Contact) orchestrator.getByAlias('con_' + i);
+      if (i <= 5) {
+        Assert.areEqual(null, con);
+      } else {
+        Assert.areEqual(acc.Id, con.AccountId);
+      }
+    }
+  }
+}
