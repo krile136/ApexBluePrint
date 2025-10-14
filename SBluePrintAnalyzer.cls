@@ -103,6 +103,31 @@ public with sharing class SBluePrintAnalyzer {
 
     SBluePrint sBluePrintWithoutGrandChildren = childBluePrint.removeChildren();
     if (sBluePrintWithoutGrandChildren.hasDependencies()) {
+      /**
+      for (SBluePrint.Dependency dependency : sBluePrintWithoutGrandChildren.getDependencies()) {
+      1System.debug('今のdependency ' + dependency);
+        // {P0} のような形式の場合、数字部分を抜き出すして親のビルドプランから探す
+        for (Integer i = 0; i < sBluePrintWithoutGrandChildren.getParentBuildPlans().size(); i++) {
+          System.debug(i + '番目の親ビルドプラン: ' + sBluePrintWithoutGrandChildren.getParentBuildPlans()[i]);
+          String parentShorthandAlias = '{P' + i + '}';
+
+          SBluePrint.ParentBuildPlan parentBuildPlan = sBluePrintWithoutGrandChildren.getParentBuildPlans()[i];
+          String resolvedParentAlias = parentBuildPlan.parentAlias.alias;
+          System.debug('resolvedParentAlias: ' + resolvedParentAlias);
+          if (dependency.alias.contains(parentShorthandAlias)) {
+            dependency.alias = dependency.alias.replace(parentShorthandAlias, resolvedParentAlias);
+          }
+
+          String childBluePrintAlias = sBluePrintWithoutGrandChildren.getAlias();
+          if (childBluePrintAlias.contains(parentShorthandAlias)) {
+            System.debug('子のエイリアスにも親の略称が含まれている: ' + childBluePrintAlias);
+            SBluePrint.AliasDefinition childAliasDefinition = sBluePrintWithoutGrandChildren.getAliasDefinition(); 
+            String resolvedChildAlias = childAliasDefinition.alias.replace(parentShorthandAlias, resolvedParentAlias);
+            sBluePrintWithoutGrandChildren.alias(resolvedChildAlias, childAliasDefinition.startAt, childAliasDefinition.interval);
+          }
+        }
+      }
+      **/
       PendingBluePrint pendingBluePrint = new PendingBluePrint(sBluePrintWithoutGrandChildren);
       context.addPendingSBluePrint(pendingBluePrint);
     } else {
@@ -132,20 +157,31 @@ public with sharing class SBluePrintAnalyzer {
       Integer startSize = pendingBluePrints.size();
       for (Integer i = pendingBluePrints.size() - 1; i >= 0; i--) {
         PendingBluePrint pending = pendingBluePrints[i];
-        System.debug('Resolving pending: ' + pending);
+        System.debug('--------------');
+        System.debug('現在のaliasDpthMap: ' + aliasDepthMap);
+        System.debug('解決する依存性: ' + pending.dependencyAliases);
+        Integer needResolveCount = pending.getDependencyCount();
+        System.debug('解決する依存性の数: ' + needResolveCount);
         Integer resolvedCount = 0;
         Integer maxDepth = -1;
         for (String alias : aliasDepthMap.keySet()) {
           if (pending.hasAlias(alias)) {
+            System.debug('依存性を一つ解消! alias: ' + alias);
             resolvedCount++;
+            System.debug('現在の解決数: ' + resolvedCount);
             Integer depth = aliasDepthMap.get(alias);
             if (depth > maxDepth) {
               maxDepth = depth;
             }
           }
         }
+        System.debug('現在のAliasDepthMapで解決できた数: ' + resolvedCount);
+        System.debug('解決する依存性の数(再): ' + needResolveCount);
 
-        if (resolvedCount == pending.getDependencyCount()) {
+        System.debug('解決できた？: ' + (resolvedCount == needResolveCount));
+        if (resolvedCount == needResolveCount) {
+          System.debug('依存性の解決成功!');
+          System.debug('--------------');
           // all resolved
           SBluePrint resolvedSBluePrint = pending.getSBluePrint();
           Integer currentDepth = maxDepth + 1;
@@ -155,6 +191,7 @@ public with sharing class SBluePrintAnalyzer {
             maxLayer = currentDepth;
           }
           for (String alias : resolvedSBluePrint.generateAllAliases()) {
+            System.debug('新たに登録するエイリアス: ' + alias + ', depth: ' + currentDepth);
             aliasDepthMap.put(alias, currentDepth);
           }
 
@@ -167,7 +204,7 @@ public with sharing class SBluePrintAnalyzer {
         throw new DmlException('Circular reference detected among aliases: ' + pendingBluePrints);
       }
     }
-    System.debug('依存性解決完了。maxLayer: ' + maxLayer);
+    System.debug('全ての依存性解決完了。maxLayer: ' + maxLayer);
     return buildLayers;
   }
 
@@ -237,8 +274,27 @@ public with sharing class SBluePrintAnalyzer {
     }
 
     public Boolean hasAlias(String alias) {
-      System.debug('Checking alias: ' + alias + ' in ' + this.dependencyAliases);
-      return this.dependencyAliases.contains(alias);
+      System.debug('エイリアス: ' + alias + ' が次の配列にあるか？ ' + this.dependencyAliases);
+      System.debug('dependency contain? ' + this.dependencyAliases.contains(alias));
+      if (this.dependencyAliases.contains(alias)) {
+        this.dependencyAliases.remove(alias);
+        return true;
+      }
+
+      for (Integer i = 0; i < this.sBluePrint.getParentBuildPlans().size(); i++) {
+        System.debug('親のビルドプランのP0 などのチェック開始');
+        String parentShorthandAlias = '{P' + i + '}';
+        System.debug('parentShorthandAlias: ' + parentShorthandAlias);
+
+        for (String dependencyAlias : this.dependencyAliases) {
+          if (dependencyAlias == parentShorthandAlias) {  
+            this.dependencyAliases.remove(dependencyAlias);
+            return true;
+          }
+        }
+      }
+
+      return false;
     }
 
     public Integer getDependencyCount() {

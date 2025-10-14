@@ -35,6 +35,8 @@ public with sharing class SBluePrintRealizer {
             currentSequence,
             this.parentPositionToAlias
           );
+          System.debug('挿入詳細: ' + field + ' -> ' + resolvedValue);
+          // ここで型エラーが発生することがあるのでちゃんとキャッチしてあげること
           sobj.put(field, resolvedValue);
         }
 

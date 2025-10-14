@@ -107,6 +107,53 @@ public with sharing class SOrchestratorTest {
   }
 
   @isTest
+  static void testCreate_WhenAddParentAndChildrenWithParentLayerAlias_ThenInsertInOrder() {
+    // Arrange
+    SOrchestrator orchestrator = SOrchestrator.start(new MockDmlOperator())
+      .add(
+        SBluePrint.of(Account.class)
+          .set('Name', 'Test Account')
+          .withChildren(SBluePrint.of(Contact.class).use('{P0}', 'Name', 'LastName').alias('con'))
+      );
+
+    // Act
+    orchestrator.create();
+
+    // Assert
+    Account acc = (Account) orchestrator.getByAlias('__Account_0_1__');
+    Assert.areEqual('Test Account', acc.Name);
+    Contact con = (Contact) orchestrator.getByAlias('con');
+    Assert.areEqual('Test Account', con.LastName);
+    Assert.areEqual(acc.Id, con.AccountId);
+  }
+
+  @isTest
+  static void testCreate_WhenAddParentAndChildrenWithParentLayerAlias_ThenInsertInOrder_2() {
+    // Arrange
+    SOrchestrator orchestrator = SOrchestrator.start(new MockDmlOperator())
+      .add(
+        SBluePrint.of(Account.class)
+          .set('Name', 'Test Account')
+          .withChildren(
+            SBluePrint.of(Contact.class).use('{P0}', 'Name', 'LastName').alias('{P0}_con_{#}').times(2)
+          )
+      );
+
+    // Act
+    orchestrator.create();
+
+    // Assert
+    Account acc = (Account) orchestrator.getByAlias('__Account_0_1__');
+    Assert.areEqual('Test Account', acc.Name);
+    for (Integer i = 1; i <= 2; i++) {
+      String contactAlias = '__Account_0_1__' + '_con_' + i;
+      Contact con = (Contact) orchestrator.getByAlias(contactAlias);
+      Assert.areEqual('Test Account', con.LastName);
+      Assert.areEqual(acc.Id, con.AccountId);
+    }
+  }
+
+  @isTest
   static void testCreate_WhenAddMultipleRoots_ThenInsertAllInOrder() {
     // Arrange
     SOrchestrator orchestrator = SOrchestrator.start(new MockDmlOperator())
@@ -370,6 +417,151 @@ public with sharing class SOrchestratorTest {
           Quote quote = (Quote) orchestrator.getByAlias(quoteAlias);
           Assert.areEqual(opp.Id, quote.OpportunityId);
           Assert.areEqual('Test Quote ' + k, quote.Name);
+        }
+      }
+    }
+  }
+
+  @isTest
+  static void testCreate_WhenAddNestedMultipleParentsWithChildren_ThenCreateChildrenToEachParent_4() {
+    //Arrange
+    Date today = Date.today();
+    SOrchestrator orchestrator = SOrchestrator.start(new MockDmlOperator())
+      .add(
+        SBluePrint.of(Account.class)
+          .set('Name', 'Test Account')
+          .withChildren(
+            SBluePrint.of(Opportunity.class)
+              .parentIdField('AccountId')
+              .set('Name', 'Test Opportunity {#}', 1, 1)
+              .set('StageName', 'Prospecting')
+              .set('CloseDate', today)
+              .times(2)
+              .withChildren(
+                SBluePrint.of(Quote.class)
+                  .parentIdField('OpportunityId')
+                  .set('Name', 'Test Quote {#}', 1, 1)
+                  .times(2)
+                  .withChildren(
+                    SBluePrint.of(QuoteLineItem.class)
+                      .parentIdField('QuoteId')
+                      .use('prod_{#}', 'Id', 'PricebookEntryId')
+                      .use('{P0}', 'Name', 'Description')
+                      .set('Quantity', 1)
+                      .set('UnitPrice', 100)
+                      .times(2)
+                  )
+              )
+          )
+      )
+      .add(SBluePrint.of(Product2.class).set('Name', 'Test Product {#}', 1, 1).times(2).alias('prod_{#}'));
+
+    // Act
+    orchestrator.create();
+
+    // Assert
+    String accAlias = '__Account_0_1__';
+    Account acc = (Account) orchestrator.getByAlias(accAlias);
+    Assert.areEqual('Test Account', acc.Name);
+    for (Integer i = 1; i <= 2; i++) {
+      String oppAlias =
+        accAlias +
+        '_' +
+        String.format('__Opportunity_1_{0}__', new List<String>{ String.valueOf(i) });
+      Opportunity opp = (Opportunity) orchestrator.getByAlias(oppAlias);
+      Assert.areEqual(acc.Id, opp.AccountId);
+      Assert.areEqual('Test Opportunity ' + i, opp.Name);
+      Assert.areEqual('Prospecting', opp.StageName);
+      Assert.areEqual(today, opp.CloseDate);
+      for (Integer j = 1; j <= 2; j++) {
+        String quoteAlias =
+          oppAlias +
+          '_' +
+          String.format('__Quote_2_{0}__', new List<String>{ String.valueOf(j) });
+        Quote quote = (Quote) orchestrator.getByAlias(quoteAlias);
+        Assert.areEqual(opp.Id, quote.OpportunityId);
+        Assert.areEqual('Test Quote ' + j, quote.Name);
+        for (Integer k = 1; k <= 2; k++) {
+          String qliAlias =
+            quoteAlias +
+            '_' +
+            String.format('__QuoteLineItem_3_{0}__', new List<String>{ String.valueOf(k) });
+          QuoteLineItem qli = (QuoteLineItem) orchestrator.getByAlias(qliAlias);
+          Assert.areEqual(quote.Id, qli.QuoteId);
+          Assert.areEqual(1, qli.Quantity);
+          Assert.areEqual(100, qli.UnitPrice);
+          Assert.areEqual('Test Account', qli.Description);
+          Product2 prod = (Product2) orchestrator.getByAlias('prod_' + k);
+          Assert.areEqual(prod.Id, qli.PricebookEntryId);
+        }
+      }
+    }
+  }
+
+  @isTest
+  static void testCreate_WhenAddNestedMultipleParentsWithChildren_ThenCreateChildrenToEachParent_5() {
+    //Arrange
+    Date today = Date.today();
+    SOrchestrator orchestrator = SOrchestrator.start(new MockDmlOperator())
+      .add(
+        SBluePrint.of(Account.class)
+          .set('Name', 'Test Account {#}', 1, 1)
+          .times(2)
+          .withChildren(
+            SBluePrint.of(Opportunity.class)
+              .parentIdField('AccountId')
+              .set('Name', 'Test Opportunity')
+              .set('StageName', 'Prospecting')
+              .set('CloseDate', today)
+              .withChildren(
+                SBluePrint.of(Quote.class)
+                  .parentIdField('OpportunityId')
+                  .set('Name', 'Test Quote {#}', 1, 1)
+                  .times(2)
+                  .withChildren(
+                    SBluePrint.of(QuoteLineItem.class)
+                      .parentIdField('QuoteId')
+                      .use('{P1}', 'Name', 'Description')
+                      .set('Quantity', 1)
+                      .set('UnitPrice', 100)
+                      .times(2)
+                  )
+              )
+          )
+      );
+
+    // Act
+    orchestrator.create();
+
+    // Assert
+    for (Integer i = 1; i <= 2; i++) {
+      String accAlias = String.format('__Account_0_{0}__', new List<String>{ String.valueOf(i) });
+      Account acc = (Account) orchestrator.getByAlias(accAlias);
+      Assert.areEqual('Test Account ' + i, acc.Name);
+      String oppAlias = accAlias + '_' + '__Opportunity_1_1__';
+      Opportunity opp = (Opportunity) orchestrator.getByAlias(oppAlias);
+      Assert.areEqual(acc.Id, opp.AccountId);
+      Assert.areEqual('Test Opportunity', opp.Name);
+      Assert.areEqual('Prospecting', opp.StageName);
+      Assert.areEqual(today, opp.CloseDate);
+      for (Integer j = 1; j <= 2; j++) {
+        String quoteAlias =
+          oppAlias +
+          '_' +
+          String.format('__Quote_2_{0}__', new List<String>{ String.valueOf(j) });
+        Quote quote = (Quote) orchestrator.getByAlias(quoteAlias);
+        Assert.areEqual(opp.Id, quote.OpportunityId);
+        Assert.areEqual('Test Quote ' + j, quote.Name);
+        for (Integer k = 1; k <= 2; k++) {
+          String qliAlias =
+            quoteAlias +
+            '_' +
+            String.format('__QuoteLineItem_3_{0}__', new List<String>{ String.valueOf(k) });
+          QuoteLineItem qli = (QuoteLineItem) orchestrator.getByAlias(qliAlias);
+          Assert.areEqual(quote.Id, qli.QuoteId);
+          Assert.areEqual(1, qli.Quantity);
+          Assert.areEqual(100, qli.UnitPrice);
+          Assert.areEqual('Test Opportunity', qli.Description);
         }
       }
     }
