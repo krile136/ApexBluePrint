@@ -730,4 +730,116 @@ public with sharing class SOrchestratorTest {
       }
     }
   }
+
+  @isTest
+  static void testCreate_WhenAddCircularReference_ThenThrowException() {
+    // Arrange
+    SOrchestrator orchestrator = SOrchestrator.start(new MockDmlOperator())
+      .add(SBluePrint.of(Account.class).set('Name', 'Test Account').alias('acc'))
+      .add(
+        SBluePrint.of(Contact.class)
+          .use('con2', 'AccountId', 'AccountId')
+          .set('LastName', 'Test Contact 1')
+          .alias('con1')
+      )
+      .add(
+        SBluePrint.of(Contact.class)
+          .use('con1', 'AccountId', 'AccountId')
+          .set('LastName', 'Test Contact 2')
+          .alias('con2')
+      );
+
+    // Act / Assert
+    try {
+      orchestrator.create();
+      Assert.fail();
+    } catch (Exception e) {
+      System.debug(e.getMessage());
+      Assert.isTrue(e.getMessage().contains('Circular or invalid reference detected below aliases'));
+    }
+  }
+
+  @isTest
+  static void testCreate_WhenAddInvalidReference_ThenThrowException() {
+    // Arrange
+    SOrchestrator orchestrator = SOrchestrator.start(new MockDmlOperator())
+      .add(SBluePrint.of(Account.class).set('Name', 'Test Account').alias('acc'))
+      .add(
+        SBluePrint.of(Contact.class)
+          .use('non_exist', 'AccountId', 'AccountId')
+          .set('LastName', 'Test Contact')
+          .alias('con')
+      );
+
+    // Act / Assert
+    try {
+      orchestrator.create();
+      Assert.fail();
+    } catch (Exception e) {
+      System.debug(e.getMessage());
+      Assert.isTrue(e.getMessage().contains('Circular or invalid reference detected below aliases'));
+    }
+  }
+
+  @isTest
+  static void testCreate_WhenSameAliasInSameBluePrint_ThenThrowException() {
+    // Arrange
+    SOrchestrator orchestrator = SOrchestrator.start(new MockDmlOperator())
+      .add(
+        SBluePrint.of(Account.class)
+          .set('Name', 'Test Account')
+          .alias('acc')
+          .withChildren(SBluePrint.of(Contact.class).set('LastName', 'Test Contact {#}').alias('con').times(2))
+      );
+
+    // Act / Assert
+    try {
+      orchestrator.create();
+      Assert.fail();
+    } catch (Exception e) {
+      System.debug(e.getMessage());
+      Assert.isTrue(e.getMessage().contains('Duplicate alias detected: con'));
+    }
+  }
+
+  @isTest
+  static void testCreate_WhenSameAliasInDifferentBluePrint_ThenThrowException() {
+    // Arrange
+    SOrchestrator orchestrator = SOrchestrator.start(new MockDmlOperator())
+      .add(SBluePrint.of(Account.class).set('Name', 'Test Account 1').alias('acc'))
+      .add(SBluePrint.of(Account.class).set('Name', 'Test Account 2').alias('acc'));
+
+    // Act / Assert
+    try {
+      orchestrator.create();
+      Assert.fail();
+    } catch (Exception e) {
+      System.debug(e.getMessage());
+      Assert.isTrue(e.getMessage().contains('Duplicate alias detected: acc'));
+    }
+  }
+
+  @isTest
+  static void testCreate_WhenAmbiousRelationship_ThenThrowException() {
+    // Arrange
+    SOrchestrator orchestrator = SOrchestrator.start(new MockDmlOperator())
+      .add(
+        SBluePrint.of(User.class)
+          .set('LastName', 'Test User')
+          .alias('usr')
+          .withChildren(SBluePrint.of(Account.class).set('Name', 'Test Account').alias('acc'))
+      );
+    // Act / Assert
+    try {
+      orchestrator.create();
+      Assert.fail();
+    } catch (Exception e) {
+      System.debug(e.getMessage());
+      String expectedMessage = String.format(
+        'The child object has multiple parent relationships with the same parent object. object name: {0}, parent object name: {1}',
+        new List<String>{ 'Account', 'User' }
+      );
+      Assert.isTrue(e.getMessage().contains(expectedMessage));
+    }
+  }
 }

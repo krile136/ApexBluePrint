@@ -1,169 +1,287 @@
+/**
+ * Copyright 2025 Hiroyuki Matsuoka
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/**
+ * The main orchestrator for building and creating test data from a collection of SBlueprints.
+ * It manages the analysis of dependencies, the ordering of creation, and the final DML operations.
+ */
 public with sharing class SOrchestrator {
+  // =================================================================================
+  // Properties
+  // =================================================================================
+
   @TestVisible
-  private List<SBluePrint> sBluePrints;
+  private List<SBlueprint> sBlueprints;
   private Map<String, SObject> aliasToSObject = new Map<String, SObject>();
   private IDmlOperator dmlOperator;
 
+  // =================================================================================
+  // Constructors & Factory Methods
+  // =================================================================================
+
+  /**
+   * Private constructor. Use `start()` factory methods for instantiation.
+   * Initializes with the default DML operator.
+   */
   private SOrchestrator() {
-    this.sBluePrints = new List<SBluePrint>();
+    this.sBlueprints = new List<SBlueprint>();
     this.dmlOperator = new DmlOperator();
   }
-  
+
+  /**
+   * Private constructor for dependency injection.
+   *
+   * @param dmlOperator The DML operator strategy to use (e.g., a mock for testing).
+   */
   private SOrchestrator(IDmlOperator dmlOperator) {
-    System.debug('Using custom DmlOperator: ' + dmlOperator);
-    this.sBluePrints = new List<SBluePrint>();
+    this.sBlueprints = new List<SBlueprint>();
     this.dmlOperator = dmlOperator;
   }
 
+  /**
+   * Starts the orchestrator build chain.
+   *
+   * @return A new SOrchestrator instance.
+   */
   public static SOrchestrator start() {
     return new SOrchestrator();
   }
 
+  /**
+   * Starts the orchestrator build chain with a custom DML operator.
+   *
+   * @param dmlOperator The DML operator strategy to use.
+   * @return A new SOrchestrator instance configured with the custom operator.
+   */
   public static SOrchestrator start(IDmlOperator dmlOperator) {
     return new SOrchestrator(dmlOperator);
   }
 
-  public SOrchestrator add(SBluePrint sBluePrint) {
-    System.debug(this.dmlOperator);
-    if (sBluePrint == null) {
-      throw new DmlException('sBluePrint must not be null');
+  // =================================================================================
+  // Public API (Fluent Interface)
+  // =================================================================================
+
+  /**
+   * Adds an SBlueprint to the orchestration queue.
+   *
+   * @param sBlueprint The blueprint to add.
+   * @return A new SOrchestrator instance with the blueprint added.
+   * @throws DmlException if the provided sBlueprint is null.
+   */
+  public SOrchestrator add(SBlueprint sBlueprint) {
+    if (sBlueprint == null) {
+      throw new DmlException('sBlueprint must not be null');
     }
     SOrchestrator newSOrchestrator = this.deepCopy();
-    newSOrchestrator.sBluePrints.add(sBluePrint);
-
+    newSOrchestrator.sBlueprints.add(sBlueprint);
     return newSOrchestrator;
   }
 
+  // =================================================================================
+  // Public API (Execution & Access)
+  // =================================================================================
+
+  /**
+   * Analyzes dependencies, realizes all SBlueprints into SObjects, and inserts them in the correct order.
+   * This is the final execution method.
+   */
   public void create() {
-    System.debug('dmlOperator at start of create: ' + this.dmlOperator);
-    BuildLayers buildLayers = (new SBluePrintAnalyzer(this.sBluePrints)).analyze();
-    buildLayers.realizeAll(this.aliasToSObject, buildLayers.getMapDepth(), this.dmlOperator);
+    BuildLayers buildLayers = (new SBlueprintAnalyzer(this.sBlueprints)).analyze();
+    buildLayers.realizeAll(this.aliasToSObject, buildLayers.getMaxDepth(), this.dmlOperator);
   }
 
+  /**
+   * Retrieves a created SObject record by its alias.
+   * This should be called after `create()` has been executed.
+   *
+   * @param alias The alias of the record to retrieve.
+   * @return The SObject record, or null if the alias is not found.
+   */
   public SObject getByAlias(String alias) {
-    if (this.aliasToSObject.containsKey(alias)) {
-      return this.aliasToSObject.get(alias);
-    }
-    return null;
+    return this.aliasToSObject.get(alias);
   }
 
-  private SOrchestrator deepCopy() {
-    SOrchestrator newSOrchestrator = new SOrchestrator();
-    newSOrchestrator.sBluePrints = this.sBluePrints.clone();
-    this.aliasToSObject = this.aliasToSObject.clone();
-    newSOrchestrator.dmlOperator = this.dmlOperator;
+  // =================================================================================
+  // Private Helper Methods
+  // =================================================================================
 
+  /**
+   * Creates a deep copy of the orchestrator to maintain immutability.
+   *
+   * @return A new SOrchestrator instance.
+   */
+  private SOrchestrator deepCopy() {
+    SOrchestrator newSOrchestrator = new SOrchestrator(this.dmlOperator);
+    newSOrchestrator.sBlueprints = this.sBlueprints.clone();
+    newSOrchestrator.aliasToSObject = this.aliasToSObject.clone();
     return newSOrchestrator;
   }
 
+  // =================================================================================
+  // Inner Classes for Data Structure
+  // =================================================================================
+
+  /**
+   * Represents a single layer in the build process, containing blueprints with the same dependency depth.
+   */
   public class BuildLayer {
-    private List<SBluePrint> sBluePrints = new List<SBluePrint>();
+    private List<SBlueprint> sBlueprints = new List<SBlueprint>();
 
-    public void addSBluePrint(SBluePrint sBluePrint) {
-      this.sBluePrints.add(sBluePrint);
+    /**
+     * Adds a blueprint to this layer.
+     *
+     * @param sBlueprint The blueprint to add.
+     */
+    public void addSBlueprint(SBlueprint sBlueprint) {
+      this.sBlueprints.add(sBlueprint);
     }
 
-    public List<SBluePrint> getSBluePrints() {
-      return this.sBluePrints;
+    /**
+     * Gets all blueprints in this layer.
+     *
+     * @return A list of SBlueprints.
+     */
+    public List<SBlueprint> getSBlueprints() {
+      return this.sBlueprints;
     }
 
+    /**
+     * Realizes all blueprints in this layer and inserts the resulting SObjects.
+     *
+     * @param aliasToSObject The master map of all created records, which gets updated.
+     * @param dmlOperator The strategy for performing the DML operation.
+     */
     public void realizeLayer(Map<String, SObject> aliasToSObject, IDmlOperator dmlOperator) {
-      System.debug('aliasToSObject before layer insert: ' + aliasToSObject);
       Map<String, SObject> layerAliasToSObject = new Map<String, SObject>();
-      System.debug('sbluePrint count: ' + this.sBluePrints.size());
-      for (SBluePrint sBluePrint : this.sBluePrints) {
-        Map<String, SObject> newAliasToSObject = new SBluePrintRealizer(sBluePrint, aliasToSObject, new Map<String, String>(), 0, '').realize();
-        System.debug('bluePrintのrealize完了');
+      for (SBlueprint sBlueprint : this.sBlueprints) {
+        SBlueprintRealizer realizer = new SBlueprintRealizer(
+          sBlueprint,
+          aliasToSObject,
+          new Map<String, String>(),
+          0
+        );
+        Map<String, SObject> newAliasToSObject = realizer.realize();
+
         for (String alias : newAliasToSObject.keySet()) {
-          System.debug('Inserting alias: ' + alias + ' -> ' + newAliasToSObject.get(alias));
           if (layerAliasToSObject.containsKey(alias)) {
-            throw new DmlException('Duplicate alias found during layer prepare: ' + alias);
+            String errorMessage = String.format(
+              'Duplicate alias detected: {0}\nAliases must be unique across all SBlueprint definitions to ensure records can be correctly identified. Please provide a unique alias.',
+              new List<String>{ alias }
+            );
+            throw new DmlException(errorMessage);
           }
           layerAliasToSObject.put(alias, newAliasToSObject.get(alias));
         }
       }
-      System.debug('dmlOperator before layer insert: ' + dmlOperator);
+
       dmlOperator.doInsert(layerAliasToSObject.values());
 
       for (String alias : layerAliasToSObject.keySet()) {
-        SObject sobj = layerAliasToSObject.get(alias);
         if (aliasToSObject.containsKey(alias)) {
-          throw new DmlException('Duplicate alias found during layer insert: ' + alias);
+          String errorMessage = String.format(
+            'Duplicate alias detected: {0}\nAliases must be unique across all SBlueprint definitions to ensure records can be correctly identified. Please provide a unique alias.',
+            new List<String>{ alias }
+          );
+          throw new DmlException(errorMessage);
         }
-        aliasToSObject.put(alias, sobj);
+        aliasToSObject.put(alias, layerAliasToSObject.get(alias));
       }
-      System.debug('aliasToSObject after layer insert: ' + aliasToSObject);
     }
   }
 
+  /**
+   * Represents all ordered layers of the build process.
+   */
   public class BuildLayers {
     private Map<String, BuildLayer> layers = new Map<String, BuildLayer>();
 
-    public Integer getMapDepth() {
-      return this.layers.keySet().size() - 1;
+    /**
+     * Gets the maximum depth of the build layers.
+     * @return The highest layer number.
+     */
+    public Integer getMaxDepth() {
+      Integer maxDepth = 0;
+      for (String layerKey : this.layers.keySet()) {
+        Integer layerNum = Integer.valueOf(layerKey);
+        if (layerNum > maxDepth) {
+          maxDepth = layerNum;
+        }
+      }
+      return maxDepth;
     }
 
-    public void addSBluePrint(Integer layerNumber, SBluePrint sBluePrint) {
+    /**
+     * Adds a blueprint to a specific layer.
+     *
+     * @param layerNumber The layer to add the blueprint to.
+     * @param sBlueprint The blueprint to add.
+     */
+    public void addSBlueprint(Integer layerNumber, SBlueprint sBlueprint) {
       String layerKey = String.valueOf(layerNumber);
       if (!this.layers.containsKey(layerKey)) {
         this.layers.put(layerKey, new BuildLayer());
       }
-      this.layers.get(layerKey).addSBluePrint(sBluePrint);
+      this.layers.get(layerKey).addSBlueprint(sBlueprint);
     }
 
-    public void addRoot(SBluePrint sBluePrint) {
-      this.addSBluePrint(0, sBluePrint);
+    /**
+     * A convenience method to add a blueprint to the root layer (layer 0).
+     *
+     * @param sBlueprint The blueprint to add.
+     */
+    public void addRoot(SBlueprint sBlueprint) {
+      this.addSBlueprint(0, sBlueprint);
     }
 
-    public List<SBluePrint> getSBluePrintsByLayer(Integer layerNumber) {
+    /**
+     * Gets all blueprints for a specific layer.
+     *
+     * @param layerNumber The layer number to retrieve.
+     * @return A list of SBlueprints.
+     */
+    public List<SBlueprint> getSBlueprintsByLayer(Integer layerNumber) {
       String layerKey = String.valueOf(layerNumber);
-      if (!this.layers.containsKey(layerKey)) {
-        return new List<SBluePrint>();
-      }
-      return this.layers.get(layerKey).getSBluePrints();
+      return this.layers.containsKey(layerKey)
+        ? this.layers.get(layerKey).getSBlueprints()
+        : new List<SBlueprint>();
     }
 
-    public List<SBluePrint> getRoots() {
-      return this.getSBluePrintsByLayer(0);
+    /**
+     * Gets all blueprints in the root layer (layer 0).
+     *
+     * @return A list of root SBlueprints.
+     */
+    public List<SBlueprint> getRoots() {
+      return this.getSBlueprintsByLayer(0);
     }
 
+    /**
+     * Realizes all layers in order, from layer 0 to the max layer.
+     *
+     * @param aliasToSObject The master map of aliases to SObjects.
+     * @param maxLayer The maximum layer depth to process.
+     * @param dmlOperator The strategy for performing DML operations.
+     */
     public void realizeAll(Map<String, SObject> aliasToSObject, Integer maxLayer, IDmlOperator dmlOperator) {
-      System.debug('maxLayer: ' + maxLayer);
-      for (String key : this.layers.keySet()) {
-        System.debug('Available layers: ' + key);
-        System.debug('  sBluePrint count: ' + this.layers.get(key).getSBluePrints().size());
-      }
       for (Integer i = 0; i <= maxLayer; i++) {
-        System.debug('---------start insert layer -------------------');
-        System.debug('dml operator: ' + dmlOperator);
         String layerKey = String.valueOf(i);
-        System.debug('Inserting layer: ' + layerKey);
-        this.layers.get(layerKey).realizeLayer(aliasToSObject, dmlOperator);
-        System.debug('---------finish insert layer-----------------------');
+        if (this.layers.containsKey(layerKey)) {
+          this.layers.get(layerKey).realizeLayer(aliasToSObject, dmlOperator);
+        }
       }
-    }
-  }
-
-  public class PendingBluePrint {
-    private Set<String> useAliaseNames = new Set<String>();
-    private SBluePrint sBluePrint;
-
-    public PendingBluePrint(Set<String> useAliaseNames, SBluePrint sBluePrint) {
-      this.useAliaseNames = useAliasenames;
-      this.sBluePrint = sBluePrint;
-    }
-
-    public Boolean hasAlias(String alias) {
-      System.debug('Checking alias: ' + alias + ' in ' + this.useAliaseNames);
-      return this.useAliaseNames.contains(alias);
-    }
-
-    public Integer getUseAliasCount() {
-      return this.useAliaseNames.size();
-    }
-
-    public SBluePrint getSBluePrint() {
-      return this.sBluePrint;
     }
   }
 }
