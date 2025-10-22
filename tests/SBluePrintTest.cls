@@ -164,7 +164,7 @@ public with sharing class SBluePrintTest {
   }
 
   @isTest
-  static void testTemplate_WhenAddTemplateAfterSet_ThenReturnNewInstanceWithFirstSetValue() {
+  static void testTemplate_WhenAddTemplateAfterSet_ThenReturnNewInstanceWithTemplateValue() {
     // Arrange
     SBluePrint sBluePrint = SBluePrint.of(Account.class);
     sBluePrint = sBluePrint.set('Name', 'Test Account');
@@ -174,7 +174,7 @@ public with sharing class SBluePrintTest {
     SBluePrint newSBluePrint = sBluePrint.template(template);
 
     // Assert
-    Assert.areEqual('Test Account', newSBluePrint.fieldValues.get('Name').value, 'Name should not be overwritten by template');
+    Assert.areEqual('Template Account', newSBluePrint.fieldValues.get('Name').value, 'Name should be set from template');
   }
 
   @isTest

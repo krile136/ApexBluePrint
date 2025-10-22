@@ -130,7 +130,7 @@ public with sharing class SBluePrint {
 
   /**
    * Applies a template of field values to the blueprint.
-   * Existing fields will not be overwritten.
+   * Existing field values will be overridden by the template.
    *
    * @param template A map of field names to values.
    * @return A new SBlueprint instance with the template applied.
@@ -138,10 +138,8 @@ public with sharing class SBluePrint {
   public SBlueprint template(Map<String, Object> template) {
     SBlueprint newSBlueprint = this.deepCopy();
     for (String key : template.keySet()) {
-      if (!newSBlueprint.fieldValues.containsKey(key)) {
-        ValueDefinition valueDefinition = new ValueDefinition(template.get(key), 1, 1);
-        newSBlueprint.fieldValues.put(key, valueDefinition);
-      }
+      ValueDefinition valueDefinition = new ValueDefinition(template.get(key), 1, 1);
+      newSBlueprint.fieldValues.put(key, valueDefinition);
     }
     return newSBlueprint;
   }
@@ -182,13 +180,13 @@ public with sharing class SBluePrint {
    * @return A new SBlueprint instance with the added dependency.
    */
   public SBlueprint use(String alias, String fromField, String toField, Integer startAt, Integer interval) {
-    if(alias == null) {
+    if (alias == null) {
       throw new DmlException('alias must not be null');
     }
-    if(fromField == null) {
+    if (fromField == null) {
       throw new DmlException('fromField must not be null');
     }
-    if(toField == null) {
+    if (toField == null) {
       throw new DmlException('toField must not be null');
     }
     if (startAt == null || startAt <= 0) {
@@ -233,7 +231,7 @@ public with sharing class SBluePrint {
    * @return A new SBlueprint instance with the alias defined.
    */
   public SBlueprint alias(String alias, Integer startAt, Integer interval) {
-    if(alias == null) {
+    if (alias == null) {
       throw new DmlException('alias must not be null');
     }
     if (interval <= 0) {
